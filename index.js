@@ -1,93 +1,89 @@
 const express = require('express');
+const axios = require('axios');
 const cors = require('cors');
-const fetch = require('node-fetch');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Enable CORS for all routes
+// Middleware
 app.use(cors());
+app.use(express.json());
 
-// Basic route for testing
-app.get('/', (req, res) => {
-  res.json({ message: 'Roblox RAP Proxy Server is running!' });
-});
-
-// Simple proxy route - just pass through all data
+// Main API endpoint that your Roblox script will call
 app.get('/api/inventory/:userId', async (req, res) => {
-  const userId = req.params.userId;
-  
-  console.log(`Proxying request for user: ${userId}`);
-  
-  try {
-    // Add a small delay to avoid rate limiting
-    await new Promise(resolve => setTimeout(resolve, 500));
+    const { userId } = req.params;
     
-    const response = await fetch(
-      `https://www.pekora.zip/apisite/inventory/v1/users/${userId}/assets/collectibles`,
-      {
-        method: 'GET',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate, br',
-          'Referer': 'https://www.pekora.zip/',
-          'Origin': 'https://www.pekora.zip',
-          'DNT': '1',
-          'Connection': 'keep-alive',
-          'Sec-Fetch-Dest': 'empty',
-          'Sec-Fetch-Mode': 'cors',
-          'Sec-Fetch-Site': 'same-origin',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
-        },
-        timeout: 10000
-      }
-    );
-    
-    console.log(`Response status: ${response.status}`);
-    console.log(`Content-Type: ${response.headers.get('content-type')}`);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.log(`Error response: ${errorText.substring(0, 200)}`);
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    try {
+        console.log(`Fetching inventory for user: ${userId}`);
+        
+        // Call the Pekora API
+        const pekoraUrl = `https://www.pekora.zip/apisite/inventory/v1/users/${userId}/assets/collectibles`;
+        
+        const response = await axios.get(pekoraUrl, {
+            timeout: 30000,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+        
+        // Process the data to match your Roblox script's expected format
+        const processedData = {
+            data: response.data.map(item => ({
+                name: item.name || 'Unknown Item',
+                recentAveragePrice: item.recentAveragePrice || 0,
+                assetId: item.assetId,
+                assetType: item.assetType
+            }))
+        };
+        
+        console.log(`Successfully fetched ${processedData.data.length} items for user ${userId}`);
+        res.json(processedData);
+        
+    } catch (error) {
+        console.error(`Error fetching inventory for user ${userId}:`, error.message);
+        
+        // Return appropriate error response
+        if (error.response) {
+            res.status(error.response.status).json({
+                error: 'API request failed',
+                message: error.response.data || error.message,
+                statusCode: error.response.status
+            });
+        } else if (error.code === 'ECONNABORTED') {
+            res.status(408).json({
+                error: 'Request timeout',
+                message: 'The request took too long to complete'
+            });
+        } else {
+            res.status(500).json({
+                error: 'Internal server error',
+                message: error.message
+            });
+        }
     }
-    
-    // Check if response is JSON
-    const contentType = response.headers.get('content-type');
-    if (!contentType || !contentType.includes('application/json')) {
-      const htmlResponse = await response.text();
-      console.log(`Non-JSON response received: ${htmlResponse.substring(0, 200)}`);
-      
-      // Return a structured error response
-      return res.status(502).json({
-        error: 'API returned non-JSON response',
-        message: 'The target API is blocking requests or returning HTML error pages',
-        suggestion: 'The API may be rate-limited or blocking automated requests'
-      });
-    }
-    
-    const data = await response.json();
-    console.log(`Successfully fetched data for user ${userId}`);
-    
-    // Just return the raw data - let Roblox handle everything
-    res.json(data);
-    
-  } catch (error) {
-    console.error(`Proxy error for user ${userId}:`, error.message);
-    
-    // Return a proper error response that Roblox can handle
-    res.status(500).json({
-      error: 'Proxy request failed',
-      message: error.message,
-      userId: userId,
-      timestamp: new Date().toISOString()
-    });
-  }
 });
 
+// Health check endpoint
+app.get('/health', (req, res) => {
+    res.json({ 
+        status: 'OK', 
+        timestamp: new Date().toISOString(),
+        service: 'Pekora API Proxy'
+    });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+    res.json({
+        message: 'Pekora API Proxy Server',
+        usage: 'GET /api/inventory/:userId',
+        example: '/api/inventory/123456789'
+    });
+});
+
+// Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+    console.log(`🚀 Server running on port ${PORT}`);
+    console.log(`📡 API endpoint: /api/inventory/:userId`);
+    console.log(`🏥 Health check: /health`);
 });
