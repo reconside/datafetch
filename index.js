@@ -25,42 +25,33 @@ app.get('/api/inventory/:userId', async (req, res) => {
       {
         method: 'GET',
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': '*/*',
           'Accept-Language': 'en-US,en;q=0.9',
-          'Cache-Control': 'no-cache',
-          'Pragma': 'no-cache'
+          'Accept-Encoding': 'gzip, deflate, br',
+          'DNT': '1',
+          'Connection': 'keep-alive',
+          'Upgrade-Insecure-Requests': '1',
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'cross-site'
         }
       }
     );
     
     console.log(`Response status: ${response.status}`);
+    console.log(`Response headers:`, response.headers.raw());
+    
+    const responseText = await response.text();
+    console.log(`Response body: ${responseText.substring(0, 500)}...`);
     
     if (!response.ok) {
-      // If pekora.zip fails, try a fallback approach
-      if (response.status === 401 || response.status === 403) {
-        console.log('API access denied, using fallback system');
-        
-        // Fallback: create test data based on user ID
-        const testRAP = generateTestRAP(userId);
-        
-        res.json({
-          success: true,
-          userId: userId,
-          totalRAP: testRAP,
-          itemCount: Math.floor(testRAP / 100),
-          items: [],
-          note: "Using fallback data - API access restricted"
-        });
-        return;
-      }
-      
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`HTTP error! status: ${response.status}, body: ${responseText}`);
     }
     
-    const data = await response.json();
+    const data = JSON.parse(responseText);
     
-    // Calculate total RAP
+    // Calculate total RAP from the REAL data
     let totalRAP = 0;
     if (data.data && Array.isArray(data.data)) {
       data.data.forEach(item => {
@@ -70,7 +61,9 @@ app.get('/api/inventory/:userId', async (req, res) => {
       });
     }
     
-    // Return the data with calculated RAP
+    console.log(`Calculated total RAP: ${totalRAP} from ${data.data ? data.data.length : 0} items`);
+    
+    // Return the REAL data with calculated RAP
     res.json({
       success: true,
       userId: userId,
@@ -80,39 +73,16 @@ app.get('/api/inventory/:userId', async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error fetching data:', error);
+    console.error('Error fetching data:', error.message);
     
-    // Fallback system for any error
-    const testRAP = generateTestRAP(userId);
-    
-    res.json({
-      success: true,
-      userId: userId,
-      totalRAP: testRAP,
-      itemCount: Math.floor(testRAP / 100),
-      items: [],
-      note: "Using fallback data - API error: " + error.message
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch inventory data',
+      message: error.message,
+      userId: userId
     });
   }
 });
-
-// Generate test RAP based on user ID for fallback
-function generateTestRAP(userId) {
-  const id = parseInt(userId);
-  
-  // Create different RAP ranges based on user ID
-  const patterns = [
-    500,    // Low RAP
-    2500,   // Trader
-    15000,  // Collector  
-    75000,  // Rich
-    150000, // Wealthy
-    600000, // Mogul
-    1200000 // Tycoon
-  ];
-  
-  return patterns[id % patterns.length] + (id % 1000);
-}
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
